@@ -1,0 +1,11 @@
+﻿  main.cpp
+  math_ops.cpp
+  robot.cpp
+C:\Users\wrigh\Desktop\CS\robot\robot.cpp(230,19): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+  Sbus.cpp
+  Running Code Analysis for C/C++...
+  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 24 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  robot.vcxproj -> C:\Users\wrigh\Desktop\CS\robot\x64\Release\robot.exe

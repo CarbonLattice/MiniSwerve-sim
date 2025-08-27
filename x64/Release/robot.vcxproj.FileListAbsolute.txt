@@ -1,0 +1,3 @@
+C:\Users\wrigh\Desktop\CS\robot\x64\Release\robot.exe
+C:\Users\wrigh\Desktop\CS\robot\x64\Release\robot.exe.lastcodeanalysissucceeded
+C:\Users\wrigh\Desktop\CS\robot\x64\Release\NativeCodeAnalysis.read.1.tlog

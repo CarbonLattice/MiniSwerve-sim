@@ -1,0 +1,9 @@
+﻿  main.cpp
+  robot.cpp
+C:\Users\wrigh\Desktop\CS\robot\robot.cpp(227,19): warning C4244: 'initializing': conversion from 'double' to 'float', possible loss of data
+C:\Users\wrigh\Desktop\CS\robot\robot.cpp(240,117): warning C4474: 'printf' : too many arguments passed for format string
+  C:\Users\wrigh\Desktop\CS\robot\robot.cpp(240,117):
+  placeholders and their parameters expect 5 variadic arguments, but 6 were provided
+  
+  Generating Code...
+  robot.vcxproj -> C:\Users\wrigh\Desktop\CS\robot\x64\Debug\robot.exe
