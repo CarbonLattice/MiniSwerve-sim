@@ -1,12 +1,9 @@
-
-#define NOMINMAX
-#include <windows.h>
 #include <iostream>
 #include <thread>
 #include <chrono>
 #include <cstring>
 #include "robot.h"
-#include "sbus.h"
+#include "Sbus.h"
 
 Robot_Struct robot;
 
@@ -36,9 +33,9 @@ int main() {
 	bool running = true;
 
 
-	while (running) {
-		for (int i = 0; i < SBUS_NUM_CHAN; i++) {
-			robot.radio_rx.rx_chan[i] = SBUS_MIN;
+	while (1) {
+		for (int & i : robot.radio_rx.rx_chan) {
+			i = SBUS_MIN;
 		}
 
 
@@ -46,16 +43,6 @@ int main() {
 		int rY = SBUS_MID;
 		int lX = SBUS_MID;
 		int lY = SBUS_MID;
-
-		if (GetAsyncKeyState('W') & 0x8000) rY = SBUS_MAX;
-		if (GetAsyncKeyState('S') & 0x8000) rY = SBUS_MIN;
-		if (GetAsyncKeyState('A') & 0x8000) rX = SBUS_MIN;
-		if (GetAsyncKeyState('D') & 0x8000) rX = SBUS_MAX;
-
-		if (GetAsyncKeyState('I') & 0x8000) lY = SBUS_MAX;
-		if (GetAsyncKeyState('K') & 0x8000) lY = SBUS_MIN;
-		if (GetAsyncKeyState('J') & 0x8000) lX = SBUS_MIN;
-		if (GetAsyncKeyState('L') & 0x8000) lX = SBUS_MAX;
 
 		robot.radio_rx.rx_chan[SBUS_L_STICK_X_CHAN] = rX;
 		robot.radio_rx.rx_chan[SBUS_L_STICK_Y_CHAN] = rY;
