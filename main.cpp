@@ -1,157 +1,157 @@
-#include <random>
-#include  <notcurses/notcurses.h>
+#include <notcurses/notcurses.h>
 #include <thread>
 #include <chrono>
-#include <cstring>
-#include <notcurses/notcurses.h>
-
+#include <random>
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 #include "robot.h"
 #include "Sbus.h"
 
+// --- Robot struct ---
 Robot_Struct robot;
 
+// --- Constants ---
+constexpr int MAX_VEL = 100;
+constexpr int BAR_WIDTH = 20;
+constexpr int ROBOT_HEIGHT = 5;
+constexpr int ROBOT_WIDTH = 9;
 
-const char* angle_to_arrow(float angle) {
-	while (angle < 0) angle += 360;
-	while (angle >= 360) angle -= 360;
-
-	if (angle < 22.5 || angle >= 337.5) return "↑";
-	if (angle < 67.5) return "↗";
-	if (angle < 112.5) return "→";
-	if (angle < 157.5) return "↘";
-	if (angle < 202.5) return "↓";
-	if (angle < 247.5) return "↙";
-	if (angle < 292.5) return "←";
-	return "↖";
-}
-
-void draw_bar(struct ncplane* plane, int y, int x, float value, float max_val, int length) {
-	int filled = std::round((value / max_val) * length);
-	if (filled > length) filled = length;
-	if (filled < 0) filled = 0;
-	for (int i = 0; i < length; ++i) {
-		if (i < filled ) {
-			ncplane_putstr_yx(plane, y, x + i, "█");
-		} else {
-			ncplane_putchar_yx(plane, y, x + i, ' ');
-		}
-	}
-}
-
-
+// --- Random generator ---
 std::random_device rd;
 std::mt19937 gen(rd());
+std::uniform_int_distribution<> dist(SBUS_MIN, SBUS_MAX);
 
-int main() {
-	struct notcurses_options opts = {};
-	struct notcurses* nc = notcurses_init(&opts, nullptr);
-	if (!nc) return -1;
-	struct ncplane* stdplane = notcurses_stdplane(nc);
-	notcurses_cursor_disable(nc);
+// --- 32-direction wheel characters ---
+const char* wheel_chars[32] = {
+    "│","╱","╱","╱","─","╲","╲","╲","│","╱","╱","╱","─","╲","╲","╲",
+    "│","╱","╱","╱","─","╲","╲","╲","│","╱","╱","╱","─","╲","╲","╲"
+};
 
+// --- Map angle to wheel character ---
+const char* angle_to_wheel(float angle){
+    while(angle < 0) angle += 360;
+    while(angle >= 360) angle -= 360;
+    int index = static_cast<int>((angle / 360.0f) * 32.0f);
+    return wheel_chars[index % 32];
+}
 
-	robot.is_enabled = 1;
+// --- Draw colored bar ---
+void draw_bar(struct ncplane* plane, int y, int x, float value, float max_val, int length){
+    if(value < 0) value = 0;
+    if(value > max_val) value = max_val;
 
-	robot.xVel = 0.0;
-	robot.yVel = 0.0;
-	robot.yawVel = 0.0;
-	robot.lastBRAngle = 0.0;
-	robot.lastBLAngle = 0.0;
-	robot.lastFRAngle = 0.0;
-	robot.lastFLAngle = 0.0;
-	robot.is_enabled = 1;  // temporarily for testing
+    int filled = static_cast<int>((value / max_val) * length);
+    int r = static_cast<int>(255.0f * (value / max_val));
+    int g = static_cast<int>(255.0f * (1.0f - value / max_val));
+    ncplane_set_bg_rgb(plane, 0x000000);
 
+    for(int i=0;i<length;i++){
+        if(i < filled){
+            ncplane_set_fg_rgb(plane, (r << 16) | (g << 8));
+            ncplane_putstr_yx(plane, y, x + i, "█");
+        } else {
+            ncplane_set_fg_rgb(plane, 0x555555);
+            ncplane_putstr_yx(plane, y, x + i, "░");
+        }
+    }
+}
 
-	memset(&robot.FL_P_CTRL, 0, sizeof(robot.FL_P_CTRL));
-	memset(&robot.FR_P_CTRL, 0, sizeof(robot.FR_P_CTRL));
-	memset(&robot.BL_P_CTRL, 0, sizeof(robot.BL_P_CTRL));
-	memset(&robot.BR_P_CTRL, 0, sizeof(robot.BR_P_CTRL));
-	memset(&robot.FL_W_CTRL, 0, sizeof(robot.FL_W_CTRL));
-	memset(&robot.FR_W_CTRL, 0, sizeof(robot.FR_W_CTRL));
-	memset(&robot.BL_W_CTRL, 0, sizeof(robot.BL_W_CTRL));
-	memset(&robot.BR_W_CTRL, 0, sizeof(robot.BR_W_CTRL));
+// --- Draw high-res robot with wheel colors based on speed ---
+void draw_robot(struct ncplane* plane, int y, int x){
+    // Robot body
+    ncplane_putstr_yx(plane, y, x + 2, "┌─────┐");
+    ncplane_putstr_yx(plane, y + 1, x + 2, "│     │");
+    ncplane_putstr_yx(plane, y + 2, x + 2, "│     │");
+    ncplane_putstr_yx(plane, y + 3, x + 2, "└─────┘");
 
-	bool running = true;
+    // Compute wheel colors based on speed (normalized 0–255)
+    auto color_from_speed = [](float speed){
+        float magnitude = std::fabs(speed)/MAX_VEL;
+        int r = static_cast<int>(255 * magnitude);
+        int g = static_cast<int>(255 * (1.0f - magnitude));
+        return (r << 16) | (g << 8);
+    };
 
-	float joystickX = 0.0f; // current value
-	float joystickY = 0.0f;
+    // Front wheels
+    ncplane_set_fg_rgb(plane, color_from_speed(robot.xVel));
+    ncplane_putstr_yx(plane, y, x, angle_to_wheel(robot.lastFLAngle));       // FL
+    ncplane_putstr_yx(plane, y, x + 8, angle_to_wheel(robot.lastFRAngle));   // FR
 
-	for ( int frame = 0; frame < 100; ++frame) {
+    // Rear wheels
+    ncplane_set_fg_rgb(plane, color_from_speed(robot.yVel));
+    ncplane_putstr_yx(plane, y + 3, x, angle_to_wheel(robot.lastBLAngle));   // BL
+    ncplane_putstr_yx(plane, y + 3, x + 8, angle_to_wheel(robot.lastBRAngle)); // BR
 
-		ncplane_erase(stdplane);
+    // Numerical angles
+    ncplane_set_fg_rgb(plane, 0xFFFFFF);
+    ncplane_printf_yx(plane, y - 1, x, "%.0f", robot.lastFLAngle);
+    ncplane_printf_yx(plane, y - 1, x + 8, "%.0f", robot.lastFRAngle);
+    ncplane_printf_yx(plane, y + 4, x, "%.0f", robot.lastBLAngle);
+    ncplane_printf_yx(plane, y + 4, x + 8, "%.0f", robot.lastBRAngle);
+}
 
-		// --- Telemetry Section ---
-		ncplane_printf_yx(stdplane, 1, 1, "Robot Telemetry (Frame %d)", frame);
-		ncplane_printf_yx(stdplane, 2, 1, "X Vel: %.2f", robot.xVel);
-		draw_bar(stdplane, 2, 20, robot.xVel, MAX_WHEEL_SPEED, 20);
+// --- Interpolate angles smoothly ---
+float interpolate_angle(float current, float target, float factor){
+    float diff = target - current;
+    if(diff > 180) diff -= 360;
+    if(diff < -180) diff += 360;
+    return current + diff * factor;
+}
 
-		ncplane_printf_yx(stdplane, 3, 1, "Y Vel: %.2f", robot.yVel);
-		draw_bar(stdplane, 3, 20, robot.yVel, MAX_WHEEL_SPEED, 20);
+int main(){
+    struct notcurses_options opts{};
+    struct notcurses* nc = notcurses_init(&opts, nullptr);
+    if(!nc) return -1;
+    struct ncplane* stdplane = notcurses_stdplane(nc);
+    notcurses_cursor_disable(nc);
 
-		ncplane_printf_yx(stdplane, 4, 1, "Yaw Vel: %.2f", robot.yawVel);
-		draw_bar(stdplane, 4, 20, robot.yawVel, MAX_WHEEL_SPEED, 20);
+    robot.is_enabled = 1;
+    robot.xVel = robot.yVel = robot.yawVel = 0.0f;
+    robot.lastFLAngle = robot.lastFRAngle = robot.lastBLAngle = robot.lastBRAngle = 0.0f;
 
-		ncplane_printf_yx(stdplane, 5, 1, "Enabled: %s", robot.is_enabled ? "YES" : "NO");
+    bool running = true;
+    int frame = 0;
 
-		// --- Wheel Directions Section ---
-		ncplane_printf_yx(stdplane, 7, 1, "Wheel Directions:");
-		ncplane_printf_yx(stdplane, 8, 1, "FL: %s (%.1f°)   FR: %s (%.1f°)",
-						  angle_to_arrow(robot.lastFLAngle), robot.lastFLAngle,
-						  angle_to_arrow(robot.lastFRAngle), robot.lastFRAngle);
-		ncplane_printf_yx(stdplane, 9, 1, "BL: %s (%.1f°)   BR: %s (%.1f°)",
-						  angle_to_arrow(robot.lastBLAngle), robot.lastBLAngle,
-						  angle_to_arrow(robot.lastBRAngle), robot.lastBRAngle);
+    while(running){
+        ncplane_erase(stdplane);
 
-		notcurses_render(nc);
+        // --- Telemetry ---
+        ncplane_printf_yx(stdplane, 1, 2, "X Vel:");
+        draw_bar(stdplane, 1, 10, robot.xVel, MAX_VEL, BAR_WIDTH);
+        ncplane_printf_yx(stdplane, 2, 2, "Y Vel:");
+        draw_bar(stdplane, 2, 10, robot.yVel, MAX_VEL, BAR_WIDTH);
+        ncplane_printf_yx(stdplane, 3, 2, "Yaw Vel:");
+        draw_bar(stdplane, 3, 10, robot.yawVel, MAX_VEL, BAR_WIDTH);
 
+        // --- Simulate controller input ---
+        robot.radio_rx.rx_chan[SBUS_L_STICK_X_CHAN] = dist(gen);
+        robot.radio_rx.rx_chan[SBUS_L_STICK_Y_CHAN] = dist(gen);
+        robot.radio_rx.rx_chan[SBUS_R_STICK_X_CHAN] = dist(gen);
+        robot.radio_rx.rx_chan[SBUS_R_STICK_Y_CHAN] = dist(gen);
+        sbus_update(&robot.radio_rx);
 
+        // --- Update robot logic ---
+        control(&robot);
 
-		std::uniform_real_distribution<float> change(-50.0f, 50.0f);
+        // --- Smoothly interpolate wheel angles for animation ---
+        float factor = 0.2f; // interpolation factor
+        robot.lastFLAngle = interpolate_angle(robot.lastFLAngle, robot.FL_P_CMD.angle, factor);
+        robot.lastFRAngle = interpolate_angle(robot.lastFRAngle, robot.FR_P_CMD.angle, factor);
+        robot.lastBLAngle = interpolate_angle(robot.lastBLAngle, robot.BL_P_CMD.angle, factor);
+        robot.lastBRAngle = interpolate_angle(robot.lastBRAngle, robot.BR_P_CMD.angle, factor);
 
-		joystickX += change(gen);
-		joystickY += change(gen);
+        // --- Draw robot view ---
+        draw_robot(stdplane, 6, 5);
 
-		// Clamp values
-		if (joystickX > SBUS_MAX) joystickX = SBUS_MAX;
-		if (joystickX < SBUS_MIN) joystickX = SBUS_MIN;
-		if (joystickY > SBUS_MAX) joystickY = SBUS_MAX;
-		if (joystickY < SBUS_MIN) joystickY = SBUS_MIN;
+        // Render frame
+        notcurses_render(nc);
 
-		// Assign to robot
-		robot.radio_rx.rx_chan[SBUS_L_STICK_X_CHAN] = (int)joystickX;
-		robot.radio_rx.rx_chan[SBUS_L_STICK_Y_CHAN] = (int)joystickY;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 20 FPS
+        frame++;
+        if(frame > 400) running = false;
+    }
 
-
-		sbus_update(&robot.radio_rx);
-
-		//robot.xVel = rX;
-		//robot.yVel = rY;
-		//robot.yawVel = lX;
-
-
-
-		//std::cout << "\rInputs: xVel=" << robot.xVel << " yVel=" << robot.yVel
-			//<< " yawVel=" << robot.yawVel << "      ";
-		//std::cout.flush();
-
-
-		//robot.xVel = sbus.stick_r_x;
-		//robot.yVel = sbus.stick_r_y;
-		//robot.yawVel = sbus.stick_l_x;
-
-
-
-
-		control(&robot);
-
-		//std::cout << "\rR Stick: (" << robot.radio_rx.stick_r_x << ", " << robot.radio_rx.stick_r_y
-		//	<< ")  L Stick: (" << robot.radio_rx.stick_l_x << ", " << robot.radio_rx.stick_l_y << ")   ";
-		//std::cout.flush();
-
-		//debug_print(&robot);
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
-	}
-	notcurses_stop(nc);
-	return 0;
+    notcurses_stop(nc);
+    return 0;
 }
