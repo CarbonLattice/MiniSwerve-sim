@@ -1,15 +1,56 @@
-#include <iostream>
+#include <random>
+#include  <notcurses/notcurses.h>
 #include <thread>
 #include <chrono>
 #include <cstring>
+#include <notcurses/notcurses.h>
+
 #include "robot.h"
 #include "Sbus.h"
 
 Robot_Struct robot;
 
 
-int main() {
+const char* angle_to_arrow(float angle) {
+	while (angle < 0) angle += 360;
+	while (angle >= 360) angle -= 360;
 
+	if (angle < 22.5 || angle >= 337.5) return "↑";
+	if (angle < 67.5) return "↗";
+	if (angle < 112.5) return "→";
+	if (angle < 157.5) return "↘";
+	if (angle < 202.5) return "↓";
+	if (angle < 247.5) return "↙";
+	if (angle < 292.5) return "←";
+	return "↖";
+}
+
+void draw_bar(struct ncplane* plane, int y, int x, float value, float max_val, int length) {
+	int filled = std::round((value / max_val) * length);
+	if (filled > length) filled = length;
+	if (filled < 0) filled = 0;
+	for (int i = 0; i < length; ++i) {
+		if (i < filled ) {
+			ncplane_putstr_yx(plane, y, x + i, "█");
+		} else {
+			ncplane_putchar_yx(plane, y, x + i, ' ');
+		}
+	}
+}
+
+
+std::random_device rd;
+std::mt19937 gen(rd());
+
+int main() {
+	struct notcurses_options opts = {};
+	struct notcurses* nc = notcurses_init(&opts, nullptr);
+	if (!nc) return -1;
+	struct ncplane* stdplane = notcurses_stdplane(nc);
+	notcurses_cursor_disable(nc);
+
+
+	robot.is_enabled = 1;
 
 	robot.xVel = 0.0;
 	robot.yVel = 0.0;
@@ -32,25 +73,55 @@ int main() {
 
 	bool running = true;
 
+	float joystickX = 0.0f; // current value
+	float joystickY = 0.0f;
 
-	while (1) {
-		for (int & i : robot.radio_rx.rx_chan) {
-			i = SBUS_MIN;
-		}
+	for ( int frame = 0; frame < 100; ++frame) {
+
+		ncplane_erase(stdplane);
+
+		// --- Telemetry Section ---
+		ncplane_printf_yx(stdplane, 1, 1, "Robot Telemetry (Frame %d)", frame);
+		ncplane_printf_yx(stdplane, 2, 1, "X Vel: %.2f", robot.xVel);
+		draw_bar(stdplane, 2, 20, robot.xVel, MAX_WHEEL_SPEED, 20);
+
+		ncplane_printf_yx(stdplane, 3, 1, "Y Vel: %.2f", robot.yVel);
+		draw_bar(stdplane, 3, 20, robot.yVel, MAX_WHEEL_SPEED, 20);
+
+		ncplane_printf_yx(stdplane, 4, 1, "Yaw Vel: %.2f", robot.yawVel);
+		draw_bar(stdplane, 4, 20, robot.yawVel, MAX_WHEEL_SPEED, 20);
+
+		ncplane_printf_yx(stdplane, 5, 1, "Enabled: %s", robot.is_enabled ? "YES" : "NO");
+
+		// --- Wheel Directions Section ---
+		ncplane_printf_yx(stdplane, 7, 1, "Wheel Directions:");
+		ncplane_printf_yx(stdplane, 8, 1, "FL: %s (%.1f°)   FR: %s (%.1f°)",
+						  angle_to_arrow(robot.lastFLAngle), robot.lastFLAngle,
+						  angle_to_arrow(robot.lastFRAngle), robot.lastFRAngle);
+		ncplane_printf_yx(stdplane, 9, 1, "BL: %s (%.1f°)   BR: %s (%.1f°)",
+						  angle_to_arrow(robot.lastBLAngle), robot.lastBLAngle,
+						  angle_to_arrow(robot.lastBRAngle), robot.lastBRAngle);
+
+		notcurses_render(nc);
 
 
-		int rX = SBUS_MID;
-		int rY = SBUS_MID;
-		int lX = SBUS_MID;
-		int lY = SBUS_MID;
 
-		robot.radio_rx.rx_chan[SBUS_L_STICK_X_CHAN] = rX;
-		robot.radio_rx.rx_chan[SBUS_L_STICK_Y_CHAN] = rY;
+		std::uniform_real_distribution<float> change(-50.0f, 50.0f);
 
-		robot.radio_rx.rx_chan[SBUS_R_STICK_X_CHAN] = lX;
-		robot.radio_rx.rx_chan[SBUS_R_STICK_Y_CHAN] = lY;
+		joystickX += change(gen);
+		joystickY += change(gen);
 
-		
+		// Clamp values
+		if (joystickX > SBUS_MAX) joystickX = SBUS_MAX;
+		if (joystickX < SBUS_MIN) joystickX = SBUS_MIN;
+		if (joystickY > SBUS_MAX) joystickY = SBUS_MAX;
+		if (joystickY < SBUS_MIN) joystickY = SBUS_MIN;
+
+		// Assign to robot
+		robot.radio_rx.rx_chan[SBUS_L_STICK_X_CHAN] = (int)joystickX;
+		robot.radio_rx.rx_chan[SBUS_L_STICK_Y_CHAN] = (int)joystickY;
+
+
 		sbus_update(&robot.radio_rx);
 
 		//robot.xVel = rX;
@@ -79,8 +150,8 @@ int main() {
 
 		//debug_print(&robot);
 
-		//std::this_thread::sleep_for(std::chrono::milliseconds(200));
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 	}
-	std::cout << "Exiting program." << std::endl;
+	notcurses_stop(nc);
 	return 0;
 }

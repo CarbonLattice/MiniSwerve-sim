@@ -3,7 +3,12 @@ project(MiniSwerve_sim_linux)
 
 set(CMAKE_CXX_STANDARD 14)
 
-include_directories(.)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(NOTCURSES REQUIRED notcurses)
+
+include_directories(${NOTCURSES_INCLUDE_DIRS})
+link_directories(${NOTCURSES_LIBRARY_DIRS})
+
 
 add_executable(MiniSwerve_sim_linux
         constants.h
@@ -16,3 +21,6 @@ add_executable(MiniSwerve_sim_linux
         robot.h
         Sbus.cpp
         Sbus.h)
+
+
+target_link_libraries(MiniSwerve_sim_linux ${NOTCURSES_LIBRARIES})
